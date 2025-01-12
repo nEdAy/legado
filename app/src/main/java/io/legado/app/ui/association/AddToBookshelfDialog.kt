@@ -23,6 +23,14 @@ import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.utils.*
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 
+/**
+ * 添加书籍链接到书架，需要对应网站书源
+ * ${origin}/${path}, {origin: bookSourceUrl}
+ * 按以下顺序尝试匹配书源并添加网址
+ * - UrlOption中的指定的书源网址bookSourceUrl
+ * - 在所有启用的书源中匹配orgin
+ * - 在所有启用的书源中使用详情页正则匹配${origin}/${path}, {origin: bookSourceUrl}
+ */
 class AddToBookshelfDialog() : BaseDialogFragment(R.layout.dialog_add_to_bookshelf) {
 
     constructor(bookUrl: String, finishOnDismiss: Boolean = false) : this() {
@@ -123,7 +131,7 @@ class AddToBookshelfDialog() : BaseDialogFragment(R.layout.dialog_add_to_bookshe
                         }
                     }
                 }
-                appDb.bookSourceDao.getBookSource(baseUrl)?.let { source ->
+                appDb.bookSourceDao.getBookSourceAddBook(baseUrl)?.let { source ->
                     getBookInfo(bookUrl, source)?.let { book ->
                         return@execute book
                     }
@@ -137,7 +145,7 @@ class AddToBookshelfDialog() : BaseDialogFragment(R.layout.dialog_add_to_bookshe
                 }
                 throw NoStackTraceException("未找到匹配书源")
             }.onError {
-                AppLog.put("添加书籍 ${bookUrl} 出错", it)
+                AppLog.put("添加书籍 $bookUrl 出错", it)
                 loadErrorLiveData.postValue(it.localizedMessage)
             }.onSuccess {
                 book = it

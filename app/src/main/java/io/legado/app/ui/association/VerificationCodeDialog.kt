@@ -21,7 +21,7 @@ import io.legado.app.help.glide.ImageLoader
 import io.legado.app.help.glide.OkHttpModelLoader
 import io.legado.app.help.source.SourceVerificationHelp
 import io.legado.app.lib.theme.primaryColor
-import io.legado.app.ui.book.read.page.provider.ImageProvider
+import io.legado.app.model.ImageProvider
 import io.legado.app.ui.widget.dialog.PhotoDialog
 import io.legado.app.utils.applyTint
 import io.legado.app.utils.setLayout
@@ -56,20 +56,18 @@ class VerificationCodeDialog() : BaseDialogFragment(R.layout.dialog_verification
         setLayout(1f, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 
-    override fun onFragmentCreated(view: View, savedInstanceState: Bundle?) {
+    private var sourceOrigin: String? = null
+
+    override fun onFragmentCreated(view: View, savedInstanceState: Bundle?): Unit = binding.run {
         initMenu()
-        binding.run {
-            toolBar.setBackgroundColor(primaryColor)
-            arguments?.let { arguments ->
-                toolBar.subtitle = arguments.getString("sourceName")
-                val sourceOrigin = arguments.getString("sourceOrigin")
-                arguments.getString("imageUrl")?.let { imageUrl ->
-                    loadImage(imageUrl, sourceOrigin)
-                    verificationCodeImageView.setOnClickListener {
-                        showDialogFragment(PhotoDialog(imageUrl, sourceOrigin))
-                    }
-                }
-            }
+        val arguments = arguments ?: return@run
+        toolBar.setBackgroundColor(primaryColor)
+        toolBar.subtitle = arguments.getString("sourceName")
+        sourceOrigin = arguments.getString("sourceOrigin")
+        val imageUrl = arguments.getString("imageUrl") ?: return@run
+        loadImage(imageUrl, sourceOrigin)
+        verificationCodeImageView.setOnClickListener {
+            showDialogFragment(PhotoDialog(imageUrl, sourceOrigin))
         }
     }
 
@@ -103,7 +101,7 @@ class VerificationCodeDialog() : BaseDialogFragment(R.layout.dialog_verification
                     transition: Transition<in Bitmap>?
                 ) {
                     view ?: return
-                    val bitmap = resource.copy(resource.config, true)
+                    val bitmap = resource.copy(resource.config ?: Bitmap.Config.ARGB_8888, true)
                     ImageProvider.bitmapLruCache.put(url, bitmap)
                     binding.verificationCodeImageView.setImageBitmap(bitmap)
                 }
@@ -118,20 +116,16 @@ class VerificationCodeDialog() : BaseDialogFragment(R.layout.dialog_verification
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.menu_ok -> {
-                val sourceOrigin = arguments?.getString("sourceOrigin")
-                val key = "${sourceOrigin}_verificationResult"
                 val verificationCode = binding.verificationCode.text.toString()
-                verificationCode.let {
-                    CacheManager.putMemory(key, it)
-                    dismiss()
-                }
+                SourceVerificationHelp.setResult(sourceOrigin!!, verificationCode)
+                dismiss()
             }
         }
         return false
     }
 
     override fun onDestroy() {
-        SourceVerificationHelp.checkResult()
+        SourceVerificationHelp.checkResult(sourceOrigin!!)
         super.onDestroy()
         activity?.finish()
     }

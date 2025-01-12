@@ -84,8 +84,19 @@ class RemoteBookAdapter(context: Context, val callBack: CallBack) :
                     }
                     notifyItemChanged(holder.layoutPosition, true)
                     callBack.upCountView()
+                } else {
+                    /* 点击开始阅读 */
+                    callBack.startRead(it)
                 }
             }
+        }
+        holder.itemView.setOnLongClickListener {
+            getItem(holder.layoutPosition)?.let { remoteBook ->
+                if (remoteBook.isOnBookShelf) {
+                    callBack.addToBookShelfAgain(remoteBook)
+                }
+            }
+            true
         }
     }
 
@@ -140,5 +151,7 @@ class RemoteBookAdapter(context: Context, val callBack: CallBack) :
     interface CallBack {
         fun openDir(remoteBook: RemoteBook)
         fun upCountView()
+        fun startRead(remoteBook: RemoteBook)
+        fun addToBookShelfAgain(remoteBook: RemoteBook)
     }
 }

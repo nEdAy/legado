@@ -3,6 +3,9 @@ package io.legado.app.ui.widget.dialog
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.resource.bitmap.DownsampleStrategy
 import com.bumptech.glide.request.RequestOptions
 import io.legado.app.R
 import io.legado.app.base.BaseDialogFragment
@@ -11,8 +14,8 @@ import io.legado.app.help.book.BookHelp
 import io.legado.app.help.glide.ImageLoader
 import io.legado.app.help.glide.OkHttpModelLoader
 import io.legado.app.model.BookCover
+import io.legado.app.model.ImageProvider
 import io.legado.app.model.ReadBook
-import io.legado.app.ui.book.read.page.provider.ImageProvider
 import io.legado.app.utils.setLayout
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 
@@ -32,7 +35,7 @@ class PhotoDialog() : BaseDialogFragment(R.layout.dialog_photo_view) {
 
     override fun onStart() {
         super.onStart()
-        setLayout(1f, 1f)
+        setLayout(1f, ViewGroup.LayoutParams.MATCH_PARENT)
     }
 
     @SuppressLint("CheckResult")
@@ -49,6 +52,9 @@ class PhotoDialog() : BaseDialogFragment(R.layout.dialog_photo_view) {
             if (file?.exists() == true) {
                 ImageLoader.load(requireContext(), file)
                     .error(R.drawable.image_loading_error)
+                    .dontTransform()
+                    .downsample(DownsampleStrategy.NONE)
+                    .diskCacheStrategy(DiskCacheStrategy.NONE)
                     .into(binding.photoView)
             } else {
                 ImageLoader.load(requireContext(), src).apply {
@@ -61,6 +67,8 @@ class PhotoDialog() : BaseDialogFragment(R.layout.dialog_photo_view) {
                         )
                     }
                 }.error(BookCover.defaultDrawable)
+                    .dontTransform()
+                    .downsample(DownsampleStrategy.NONE)
                     .into(binding.photoView)
             }
         }

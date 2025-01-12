@@ -2,13 +2,13 @@ package io.legado.app.ui.book.import.local
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.net.Uri
 import android.view.ViewGroup
 import io.legado.app.R
 import io.legado.app.base.adapter.ItemViewHolder
 import io.legado.app.base.adapter.RecyclerAdapter
 import io.legado.app.constant.AppConst
 import io.legado.app.databinding.ItemImportBookBinding
+import io.legado.app.model.localBook.LocalBook
 import io.legado.app.utils.*
 
 
@@ -16,7 +16,6 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
     RecyclerAdapter<FileDoc, ItemImportBookBinding>(context) {
     val selectedUris = hashSetOf<String>()
     var checkableCount = 0
-    private val bookFileNames = arrayListOf<String>()
 
     override fun getViewBinding(parent: ViewGroup): ItemImportBookBinding {
         return ItemImportBookBinding.inflate(inflater, parent, false)
@@ -41,7 +40,7 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
                     llBrief.gone()
                     cbSelect.isChecked = false
                 } else {
-                    if (bookFileNames.contains(item.name)) {
+                    if (isOnBookShelf(item)) {
                         ivIcon.setImageResource(R.drawable.ic_book_has)
                         ivIcon.visible()
                         cbSelect.invisible()
@@ -67,7 +66,7 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
             getItem(holder.layoutPosition)?.let {
                 if (it.isDir) {
                     callBack.nextDoc(it)
-                } else if (!bookFileNames.contains(it.name)) {
+                } else if (!isOnBookShelf(it)) {
                     if (!selectedUris.contains(it.toString())) {
                         selectedUris.add(it.toString())
                     } else {
@@ -75,26 +74,22 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
                     }
                     notifyItemChanged(holder.layoutPosition, true)
                     callBack.upCountView()
+                } else {
+                    /* 点击开始阅读 */
+                    callBack.startRead(it)
                 }
             }
         }
     }
 
-    @SuppressLint("NotifyDataSetChanged")
-    fun upBookHas(bookUrls: List<String>) {
-        bookFileNames.clear()
-        bookUrls.forEach {
-            val path = Uri.decode(it)
-            bookFileNames.add(FileUtils.getName(path))
-        }
-        notifyDataSetChanged()
-        upCheckableCount()
+    private fun isOnBookShelf(fileDoc: FileDoc): Boolean {
+        return LocalBook.isOnBookShelf(fileDoc.name)
     }
 
     private fun upCheckableCount() {
         checkableCount = 0
         getItems().forEach {
-            if (!it.isDir && !bookFileNames.contains(it.name)) {
+            if (!it.isDir && !isOnBookShelf(it)) {
                 checkableCount++
             }
         }
@@ -105,7 +100,7 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
     fun selectAll(selectAll: Boolean) {
         if (selectAll) {
             getItems().forEach {
-                if (!it.isDir && !bookFileNames.contains(it.name)) {
+                if (!it.isDir && !isOnBookShelf(it)) {
                     selectedUris.add(it.toString())
                 }
             }
@@ -118,7 +113,7 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
 
     fun revertSelection() {
         getItems().forEach {
-            if (!it.isDir && !bookFileNames.contains(it.name)) {
+            if (!it.isDir && !isOnBookShelf(it)) {
                 if (selectedUris.contains(it.toString())) {
                     selectedUris.remove(it.toString())
                 } else {
@@ -141,6 +136,7 @@ class ImportBookAdapter(context: Context, val callBack: CallBack) :
     interface CallBack {
         fun nextDoc(fileDoc: FileDoc)
         fun upCountView()
+        fun startRead(fileDoc: FileDoc)
     }
 
 }

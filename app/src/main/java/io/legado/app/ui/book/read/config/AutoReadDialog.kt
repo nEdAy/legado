@@ -49,7 +49,11 @@ class AutoReadDialog : BaseDialogFragment(R.layout.dialog_auto_read) {
     }
 
     override fun onFragmentCreated(view: View, savedInstanceState: Bundle?) = binding.run {
-        (activity as ReadBookActivity).bottomDialog++
+        val bottomDialog = (activity as ReadBookActivity).bottomDialog++
+        if (bottomDialog > 0) {
+            dismiss()
+            return
+        }
         val bg = requireContext().bottomBackground
         val isLight = ColorUtils.isColorLight(bg)
         val textColor = requireContext().getPrimaryTextColor(isLight)
@@ -104,7 +108,9 @@ class AutoReadDialog : BaseDialogFragment(R.layout.dialog_auto_read) {
         binding.llCatalog.setOnClickListener { callBack?.openChapterList() }
         binding.llAutoPageStop.setOnClickListener {
             callBack?.autoPageStop()
-            dismissAllowingStateLoss()
+            binding.llAutoPageStop.post {
+                dismissAllowingStateLoss()
+            }
         }
     }
 

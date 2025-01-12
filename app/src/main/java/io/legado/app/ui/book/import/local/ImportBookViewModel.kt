@@ -5,11 +5,16 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import io.legado.app.base.BaseViewModel
 import io.legado.app.constant.AppLog
+import io.legado.app.constant.AppPattern.archiveFileRegex
 import io.legado.app.constant.AppPattern.bookFileRegex
 import io.legado.app.constant.PreferKey
 import io.legado.app.model.localBook.LocalBook
-import io.legado.app.utils.*
-import kotlinx.coroutines.CoroutineScope
+import io.legado.app.utils.AlphanumComparator
+import io.legado.app.utils.FileDoc
+import io.legado.app.utils.getPrefInt
+import io.legado.app.utils.isContentScheme
+import io.legado.app.utils.list
+import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.channels.awaitClose
@@ -19,7 +24,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.*
+import java.util.Collections
+import kotlin.coroutines.coroutineContext
 
 class ImportBookViewModel(application: Application) : BaseViewModel(application) {
     var rootDoc: FileDoc? = null
@@ -48,6 +54,16 @@ class ImportBookViewModel(application: Application) : BaseViewModel(application)
                 list.clear()
                 trySend(emptyList())
             }
+
+            override fun screen(key: String?) {
+                if (key.isNullOrBlank()) {
+                    trySend(list)
+                } else {
+                    trySend(
+                        list.filter { it.name.contains(key) }
+                    )
+                }
+            }
         }
 
         withContext(Main) {
@@ -59,24 +75,24 @@ class ImportBookViewModel(application: Application) : BaseViewModel(application)
         }
 
     }.map { docList ->
-        when (sort) {
-            2 -> docList.sortedWith(
-                compareBy({ !it.isDir }, { -it.lastModified }, { it.name })
-            )
-            1 -> docList.sortedWith(
-                compareBy({ !it.isDir }, { -it.size }, { it.name })
-            )
-            else -> docList.sortedWith(
-                compareBy({ !it.isDir }, { it.name })
-            )
-        }
+        val comparator = when (sort) {
+            2 -> compareBy<FileDoc>({ !it.isDir }, { -it.lastModified })
+            1 -> compareBy({ !it.isDir }, { -it.size })
+            else -> compareBy { !it.isDir }
+        } then compareBy(AlphanumComparator) { it.name }
+        docList.sortedWith(comparator)
     }.flowOn(IO)
 
     fun addToBookshelf(uriList: HashSet<String>, finally: () -> Unit) {
         execute {
-            uriList.forEach {
-                LocalBook.importFile(Uri.parse(it))
+            val fileUris = uriList.map {
+                if (it.isContentScheme()) {
+                    Uri.parse(it)
+                } else {
+                    Uri.fromFile(File(it))
+                }
             }
+            LocalBook.importFiles(fileUris)
         }.onError {
             context.toastOnUi("添加书架失败，请尝试重新选择文件夹")
             AppLog.put("添加书架失败\n${it.localizedMessage}", it)
@@ -108,7 +124,7 @@ class ImportBookViewModel(application: Application) : BaseViewModel(application)
                 when {
                     item.name.startsWith(".") -> false
                     item.isDir -> true
-                    else -> item.name.matches(bookFileRegex)
+                    else -> item.name.matches(bookFileRegex) || item.name.matches(archiveFileRegex)
                 }
             }
             dataCallback?.setItems(docList!!)
@@ -117,38 +133,35 @@ class ImportBookViewModel(application: Application) : BaseViewModel(application)
         }
     }
 
-    fun scanDoc(
+    suspend fun scanDoc(
         fileDoc: FileDoc,
         isRoot: Boolean,
-        scope: CoroutineScope,
-        finally: (() -> Unit)? = null
+        finally: (suspend () -> Unit)? = null
     ) {
         if (isRoot) {
             dataCallback?.clear()
         }
-        if (!scope.isActive) {
+        if (!coroutineContext.isActive) {
             finally?.invoke()
             return
         }
         kotlin.runCatching {
             val list = ArrayList<FileDoc>()
             fileDoc.list()!!.forEach { docItem ->
-                if (!scope.isActive) {
+                if (!coroutineContext.isActive) {
                     finally?.invoke()
                     return
                 }
                 if (docItem.isDir) {
-                    scanDoc(docItem, false, scope)
-                } else if (docItem.name.endsWith(".txt", true)
-                    || docItem.name.endsWith(".epub", true) || docItem.name.endsWith(
-                        ".pdf",
-                        true
-                    ) || docItem.name.endsWith(".umd", true)
+                    scanDoc(docItem, false)
+                } else if (docItem.name.matches(bookFileRegex) || docItem.name.matches(
+                        archiveFileRegex
+                    )
                 ) {
                     list.add(docItem)
                 }
             }
-            if (!scope.isActive) {
+            if (!coroutineContext.isActive) {
                 finally?.invoke()
                 return
             }
@@ -163,6 +176,10 @@ class ImportBookViewModel(application: Application) : BaseViewModel(application)
         }
     }
 
+    fun updateCallBackFlow(filterKey: String?) {
+        dataCallback?.screen(filterKey)
+    }
+
     interface DataCallback {
 
         fun setItems(fileDocs: List<FileDoc>)
@@ -170,6 +187,8 @@ class ImportBookViewModel(application: Application) : BaseViewModel(application)
         fun addItems(fileDocs: List<FileDoc>)
 
         fun clear()
+
+        fun screen(key: String?)
 
     }
 

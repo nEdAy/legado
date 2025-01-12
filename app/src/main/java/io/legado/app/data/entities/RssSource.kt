@@ -2,14 +2,13 @@ package io.legado.app.data.entities
 
 import android.os.Parcelable
 import android.text.TextUtils
-import androidx.room.*
-import com.google.gson.JsonDeserializationContext
-import com.google.gson.JsonDeserializer
-import com.google.gson.JsonElement
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
 import io.legado.app.constant.AppPattern
-import io.legado.app.utils.*
+import io.legado.app.utils.splitNotBlank
 import kotlinx.parcelize.Parcelize
-import java.lang.reflect.Type
 
 @Parcelize
 @Entity(tableName = "rssSources", indices = [(Index(value = ["sourceUrl"], unique = false))])
@@ -28,6 +27,9 @@ data class RssSource(
     var enabled: Boolean = true,
     // 自定义变量说明
     var variableComment: String? = null,
+    // js库
+    override var jsLib: String? = null,
+    // 启用okhttp CookieJAr 自动保存每次请求的cookie
     @ColumnInfo(defaultValue = "0")
     override var enabledCookieJar: Boolean? = true,
     /**并发率**/
@@ -71,6 +73,11 @@ data class RssSource(
     var contentWhitelist: String? = null,
     /**正文url黑名单**/
     var contentBlacklist: String? = null,
+    /**
+     * 跳转url拦截,
+     * js, 返回true拦截,js变量url,可以通过js打开url,比如调用阅读搜索,添加书架等,简化规则写法,不用webView js注入
+     * **/
+    var shouldOverrideUrlLoading: String? = null,
     /**webView样式**/
     var style: String? = null,
     @ColumnInfo(defaultValue = "1")
@@ -170,39 +177,6 @@ data class RssSource(
         } else {
             "${variableComment}\n$otherComment"
         }
-    }
-
-    @Suppress("MemberVisibilityCanBePrivate")
-    companion object {
-        private val gson by lazy {
-            GSON.newBuilder()
-                .registerTypeAdapter(String::class.java, RssJsonDeserializer())
-                .create()
-        }
-
-        fun fromJson(json: String): Result<RssSource> {
-            return gson.fromJsonObject(json)
-        }
-
-        fun fromJsonArray(jsonArray: String): Result<List<RssSource>> {
-            return gson.fromJsonArray(jsonArray)
-        }
-    }
-
-    class RssJsonDeserializer : JsonDeserializer<String?> {
-
-        override fun deserialize(
-            json: JsonElement,
-            typeOfT: Type?,
-            context: JsonDeserializationContext?
-        ): String? {
-            return when {
-                json.isJsonPrimitive -> json.asString
-                json.isJsonNull -> null
-                else -> json.toString()
-            }
-        }
-
     }
 
 }
