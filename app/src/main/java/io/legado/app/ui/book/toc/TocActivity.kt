@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import android.view.MotionEvent
 import androidx.activity.viewModels
 import androidx.appcompat.widget.SearchView
 import androidx.fragment.app.Fragment
@@ -13,17 +14,22 @@ import androidx.fragment.app.FragmentPagerAdapter
 import com.google.android.material.tabs.TabLayout
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
+import io.legado.app.data.entities.Book
 import io.legado.app.databinding.ActivityChapterListBinding
 import io.legado.app.help.book.isLocalTxt
+import io.legado.app.help.book.simulatedTotalChapterNum
 import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.theme.accentColor
 import io.legado.app.lib.theme.primaryTextColor
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.about.AppLogDialog
 import io.legado.app.ui.book.toc.rule.TxtTocRuleDialog
+import io.legado.app.ui.file.HandleFileContract
 import io.legado.app.ui.widget.dialog.WaitDialog
 import io.legado.app.utils.applyTint
 import io.legado.app.utils.gone
+import io.legado.app.utils.hideSoftInput
+import io.legado.app.utils.shouldHideSoftInput
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import io.legado.app.utils.visible
@@ -41,6 +47,14 @@ class TocActivity : VMBaseActivity<ActivityChapterListBinding, TocViewModel>(),
     private var menu: Menu? = null
     private var searchView: SearchView? = null
     private val waitDialog by lazy { WaitDialog(this) }
+    private val exportDir = registerForActivityResult(HandleFileContract()) {
+        it.uri?.let { uri ->
+            when (it.requestCode) {
+                1 -> viewModel.saveBookmark(uri)
+                2 -> viewModel.saveBookmarkMd(uri)
+            }
+        }
+    }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         tabLayout = binding.titleBar.findViewById(R.id.tab_layout)
@@ -57,12 +71,20 @@ class TocActivity : VMBaseActivity<ActivityChapterListBinding, TocViewModel>(),
         }
     }
 
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.action == MotionEvent.ACTION_DOWN) {
+            currentFocus?.let {
+                if (it.shouldHideSoftInput(ev)) {
+                    it.hideSoftInput()
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onCompatCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.book_toc, menu)
         this.menu = menu
-        viewModel.bookData.value?.let {
-            menu.setGroupVisible(R.id.menu_group_text, it.isLocalTxt)
-        }
         val search = menu.findItem(R.id.menu_search)
         searchView = (search.actionView as SearchView).apply {
             applyTint(primaryTextColor)
@@ -99,7 +121,21 @@ class TocActivity : VMBaseActivity<ActivityChapterListBinding, TocViewModel>(),
     }
 
     override fun onMenuOpened(featureId: Int, menu: Menu): Boolean {
-        menu.findItem(R.id.menu_use_replace)?.isChecked = AppConfig.tocUiUseReplace
+        if (tabLayout.selectedTabPosition == 1) {
+            menu.setGroupVisible(R.id.menu_group_bookmark, true)
+            menu.setGroupVisible(R.id.menu_group_toc, false)
+            menu.setGroupVisible(R.id.menu_group_text, false)
+        } else {
+            menu.setGroupVisible(R.id.menu_group_bookmark, false)
+            menu.setGroupVisible(R.id.menu_group_toc, true)
+            menu.setGroupVisible(R.id.menu_group_text, viewModel.bookData.value?.isLocalTxt == true)
+        }
+        menu.findItem(R.id.menu_use_replace)?.isChecked =
+            AppConfig.tocUiUseReplace
+        menu.findItem(R.id.menu_load_word_count)?.isChecked =
+            AppConfig.tocCountWords
+        menu.findItem(R.id.menu_split_long_chapter)?.isChecked =
+            viewModel.bookData.value?.getSplitLongChapter() == true
         return super.onMenuOpened(featureId, menu)
     }
 
@@ -108,6 +144,15 @@ class TocActivity : VMBaseActivity<ActivityChapterListBinding, TocViewModel>(),
             R.id.menu_toc_regex -> showDialogFragment(
                 TxtTocRuleDialog(viewModel.bookData.value?.tocUrl)
             )
+
+            R.id.menu_split_long_chapter -> {
+                viewModel.bookData.value?.let { book ->
+                    item.isChecked = !item.isChecked
+                    book.setSplitLongChapter(item.isChecked)
+                    upBookAndToc(book)
+                }
+            }
+
             R.id.menu_reverse_toc -> viewModel.reverseToc {
                 viewModel.chapterListCallBack?.upChapterList(searchView?.query?.toString())
                 setResult(RESULT_OK, Intent().apply {
@@ -115,11 +160,26 @@ class TocActivity : VMBaseActivity<ActivityChapterListBinding, TocViewModel>(),
                     putExtra("chapterPos", 0)
                 })
             }
+
             R.id.menu_use_replace -> {
                 AppConfig.tocUiUseReplace = !item.isChecked
                 viewModel.chapterListCallBack?.clearDisplayTitle()
                 viewModel.chapterListCallBack?.upChapterList(searchView?.query?.toString())
             }
+
+            R.id.menu_load_word_count -> {
+                AppConfig.tocCountWords = !item.isChecked
+                viewModel.upChapterListAdapter()
+            }
+
+            R.id.menu_export_bookmark -> exportDir.launch {
+                requestCode = 1
+            }
+
+            R.id.menu_export_md -> exportDir.launch {
+                requestCode = 2
+            }
+
             R.id.menu_log -> showDialogFragment<AppLogDialog>()
         }
         return super.onCompatOptionsItemSelected(item)
@@ -128,16 +188,21 @@ class TocActivity : VMBaseActivity<ActivityChapterListBinding, TocViewModel>(),
     override fun onTocRegexDialogResult(tocRegex: String) {
         viewModel.bookData.value?.let { book ->
             book.tocUrl = tocRegex
-            waitDialog.show()
-            viewModel.upBookTocRule(book) {
-                waitDialog.dismiss()
-                ReadBook.book?.let { readBook ->
-                    if (readBook == book) {
-                        ReadBook.book = book
-                        ReadBook.chapterSize = book.totalChapterNum
-                        ReadBook.upMsg(null)
-                        ReadBook.loadContent(resetPageOffset = true)
-                    }
+            upBookAndToc(book)
+        }
+    }
+
+    private fun upBookAndToc(book: Book) {
+        waitDialog.show()
+        viewModel.upBookTocRule(book) {
+            waitDialog.dismiss()
+            ReadBook.book?.let { readBook ->
+                if (readBook == book) {
+                    ReadBook.book = book
+                    ReadBook.chapterSize = book.totalChapterNum
+                    ReadBook.simulatedChapterSize = book.simulatedTotalChapterNum()
+                    ReadBook.upMsg(null)
+                    ReadBook.loadContent(resetPageOffset = true)
                 }
             }
         }
