@@ -2,15 +2,18 @@
 
 package io.legado.app.utils
 
+import android.annotation.SuppressLint
 import android.icu.text.Collator
 import android.icu.util.ULocale
 import android.net.Uri
 import android.text.Editable
+import cn.hutool.core.net.URLEncodeUtil
+import io.legado.app.constant.AppPattern
 import io.legado.app.constant.AppPattern.dataUriRegex
 import java.io.File
 import java.lang.Character.codePointCount
 import java.lang.Character.offsetByCodePoints
-import java.util.*
+import java.util.Locale
 import java.util.regex.Pattern
 
 fun String?.safeTrim() = if (this.isNullOrBlank()) null else this.trim()
@@ -84,6 +87,7 @@ fun String.splitNotBlank(regex: Regex, limit: Int = 0): Array<String> = run {
     this.split(regex, limit).map { it.trim() }.filterNot { it.isBlank() }.toTypedArray()
 }
 
+@SuppressLint("ObsoleteSdkInt")
 fun String.cnCompare(other: String): Int {
     return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
         Collator.getInstance(ULocale.SIMPLIFIED_CHINESE).compare(this, other)
@@ -125,3 +129,8 @@ fun CharSequence.toStringArray(): Array<String> {
     }
 }
 
+fun String.escapeRegex(): String {
+    return replace(AppPattern.regexCharRegex, "\\\\$0")
+}
+
+fun String.encodeURI(): String = URLEncodeUtil.encodeQuery(this)

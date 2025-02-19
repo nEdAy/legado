@@ -4,7 +4,7 @@
         <item>文字</item>
         <item>音訊</item>
         <item>圖片</item>
-        <item>文件</item>
+        <item>資料</item>
     </string-array>
 
     <string-array name="group_style">
@@ -35,8 +35,8 @@
     <string-array name="screen_time_out">
         <item>預設</item>
         <item>1分鐘</item>
-        <item>2分鐘</item>
-        <item>3分鐘</item>
+        <item>5分鐘</item>
+        <item>10分鐘</item>
         <item>常亮</item>
     </string-array>
 

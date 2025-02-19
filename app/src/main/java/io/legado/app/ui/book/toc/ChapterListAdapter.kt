@@ -1,6 +1,8 @@
 package io.legado.app.ui.book.toc
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import io.legado.app.R
@@ -18,8 +20,9 @@ import io.legado.app.utils.getCompatColor
 import io.legado.app.utils.gone
 import io.legado.app.utils.longToastOnUi
 import io.legado.app.utils.visible
-import kotlinx.coroutines.*
-import kotlinx.coroutines.Dispatchers.Main
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 class ChapterListAdapter(context: Context, val callback: Callback) :
@@ -27,6 +30,7 @@ class ChapterListAdapter(context: Context, val callback: Callback) :
 
     val cacheFileNames = hashSetOf<String>()
     private val displayTitleMap = ConcurrentHashMap<String, String>()
+    private val handler = Handler(Looper.getMainLooper())
 
     override val diffItemCallback: DiffUtil.ItemCallback<BookChapter>
         get() = object : DiffUtil.ItemCallback<BookChapter>() {
@@ -48,6 +52,7 @@ class ChapterListAdapter(context: Context, val callback: Callback) :
                         && oldItem.isPay == newItem.isPay
                         && oldItem.title == newItem.title
                         && oldItem.tag == newItem.tag
+                        && oldItem.wordCount == newItem.wordCount
                         && oldItem.isVolume == newItem.isVolume
             }
 
@@ -80,7 +85,7 @@ class ChapterListAdapter(context: Context, val callback: Callback) :
                         val displayTitle = item.getDisplayTitle(replaceRules, useReplace)
                         ensureActive()
                         displayTitleMap[item.title] = displayTitle
-                        withContext(Main) {
+                        handler.post {
                             notifyItemChanged(i, true)
                         }
                     }
@@ -94,7 +99,7 @@ class ChapterListAdapter(context: Context, val callback: Callback) :
                         val displayTitle = item.getDisplayTitle(replaceRules, useReplace)
                         ensureActive()
                         displayTitleMap[item.title] = displayTitle
-                        withContext(Main) {
+                        handler.post {
                             notifyItemChanged(i, true)
                         }
                     }
@@ -137,13 +142,23 @@ class ChapterListAdapter(context: Context, val callback: Callback) :
                     tvChapterItem.background =
                         ThemeUtils.resolveDrawable(context, android.R.attr.selectableItemBackground)
                 }
+
+                //卷名不显示
                 if (!item.tag.isNullOrEmpty() && !item.isVolume) {
-                    //卷名不显示tag(更新时间规则)
+                    //更新时间规则
                     tvTag.text = item.tag
                     tvTag.visible()
                 } else {
                     tvTag.gone()
                 }
+                if (AppConfig.tocCountWords && !item.wordCount.isNullOrEmpty() && !item.isVolume) {
+                    //章节字数
+                    tvWordCount.text = item.wordCount
+                    tvWordCount.visible()
+                } else {
+                    tvWordCount.gone()
+                }
+
                 upHasCache(binding, isDur, cached)
             } else {
                 tvChapterName.text = getDisplayTitle(item)

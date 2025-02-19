@@ -7,13 +7,17 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.Toolbar
+import androidx.core.os.bundleOf
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import io.legado.app.R
 import io.legado.app.base.BaseDialogFragment
 import io.legado.app.base.adapter.ItemViewHolder
 import io.legado.app.base.adapter.RecyclerAdapter
+import io.legado.app.constant.AppLog
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.TxtTocRule
 import io.legado.app.databinding.DialogEditTextBinding
@@ -22,17 +26,26 @@ import io.legado.app.databinding.ItemTocRegexBinding
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.theme.backgroundColor
 import io.legado.app.lib.theme.primaryColor
-import io.legado.app.model.ReadBook
 import io.legado.app.ui.association.ImportTxtTocRuleDialog
-import io.legado.app.ui.document.HandleFileContract
+import io.legado.app.ui.file.HandleFileContract
 import io.legado.app.ui.qrcode.QrCodeResult
-import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.recycler.ItemTouchCallback
 import io.legado.app.ui.widget.recycler.VerticalDivider
-import io.legado.app.utils.*
+import io.legado.app.utils.ACache
+import io.legado.app.utils.applyTint
+import io.legado.app.utils.isAbsUrl
+import io.legado.app.utils.launch
+import io.legado.app.utils.readText
+import io.legado.app.utils.setLayout
+import io.legado.app.utils.showDialogFragment
+import io.legado.app.utils.showHelp
+import io.legado.app.utils.splitNotBlank
+import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 /**
@@ -79,8 +92,6 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
         binding.toolBar.setTitle(R.string.txt_toc_rule)
         binding.toolBar.inflateMenu(R.menu.txt_toc_rule)
         binding.toolBar.menu.applyTint(requireContext())
-        binding.toolBar.menu.findItem(R.id.menu_split_long_chapter)
-            ?.isChecked = ReadBook.book?.getSplitLongChapter() == true
         binding.toolBar.setOnMenuItemClickListener(this)
         initView()
         initData()
@@ -108,10 +119,12 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
     }
 
     private fun initData() {
-        launch {
-            appDb.txtTocRuleDao.observeAll().conflate().collect { tocRules ->
+        lifecycleScope.launch {
+            appDb.txtTocRuleDao.observeAll().catch {
+                AppLog.put("TXT目录规则对话框获取数据失败\n${it.localizedMessage}", it)
+            }.flowOn(IO).conflate().collect { tocRules ->
                 initSelectedName(tocRules)
-                adapter.setItems(tocRules)
+                adapter.setItems(tocRules, adapter.diffItemCallBack)
             }
         }
     }
@@ -140,12 +153,7 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
             R.id.menu_import_onLine -> showImportDialog()
             R.id.menu_import_qr -> qrCodeResult.launch()
             R.id.menu_import_default -> viewModel.importDefault()
-            R.id.menu_split_long_chapter -> {
-                ReadBook.book?.setSplitLongChapter(!item.isChecked)
-                item.isChecked = !item.isChecked
-                if (!item.isChecked) context?.longToastOnUi(R.string.need_more_time_load_content)
-            }
-            R.id.menu_help -> showTxtTocRuleHelp()
+            R.id.menu_help -> showHelp("txtTocRuleHelp")
         }
         return false
     }
@@ -179,7 +187,7 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
             okButton {
                 val text = alertBinding.editView.text?.toString()
                 text?.let {
-                    if (!cacheUrls.contains(it)) {
+                    if (it.isAbsUrl() && !cacheUrls.contains(it)) {
                         cacheUrls.add(0, it)
                         aCache.put(importTocRuleKey, cacheUrls.joinToString(","))
                     }
@@ -190,14 +198,46 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
         }
     }
 
-    private fun showTxtTocRuleHelp() {
-        val text = String(requireContext().assets.open("help/txtTocRuleHelp.md").readBytes())
-        showDialogFragment(TextDialog(getString(R.string.help), text, TextDialog.Mode.MD))
-    }
-
     inner class TocRegexAdapter(context: Context) :
         RecyclerAdapter<TxtTocRule, ItemTocRegexBinding>(context),
         ItemTouchCallback.Callback {
+
+        val diffItemCallBack = object : DiffUtil.ItemCallback<TxtTocRule>() {
+
+            override fun areItemsTheSame(oldItem: TxtTocRule, newItem: TxtTocRule): Boolean {
+                return oldItem.id == newItem.id
+            }
+
+            override fun areContentsTheSame(oldItem: TxtTocRule, newItem: TxtTocRule): Boolean {
+                if (oldItem.name != newItem.name) {
+                    return false
+                }
+                if (oldItem.enable != newItem.enable) {
+                    return false
+                }
+                if (oldItem.example != newItem.example) {
+                    return false
+                }
+                return true
+            }
+
+            override fun getChangePayload(oldItem: TxtTocRule, newItem: TxtTocRule): Any? {
+                val payload = Bundle()
+                if (oldItem.name != newItem.name) {
+                    payload.putBoolean("upName", true)
+                }
+                if (oldItem.enable != newItem.enable) {
+                    payload.putBoolean("enabled", newItem.enable)
+                }
+                if (oldItem.example != newItem.example) {
+                    payload.putBoolean("upExample", true)
+                }
+                if (payload.isEmpty) {
+                    return null
+                }
+                return payload
+            }
+        }
 
         override fun getViewBinding(parent: ViewGroup): ItemTocRegexBinding {
             return ItemTocRegexBinding.inflate(inflater, parent, false)
@@ -217,7 +257,17 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
                     rbRegexName.isChecked = item.name == selectedName
                     swtEnabled.isChecked = item.enable
                 } else {
-                    rbRegexName.isChecked = item.name == selectedName
+                    for (i in payloads.indices) {
+                        val bundle = payloads[i] as Bundle
+                        bundle.keySet().map {
+                            when (it) {
+                                "upName" -> rbRegexName.text = item.name
+                                "upExample" -> titleExample.text = item.example
+                                "enabled" -> swtEnabled.isChecked = item.enable
+                                "upSelect" -> rbRegexName.isChecked = item.name == selectedName
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -227,16 +277,14 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
                 rbRegexName.setOnCheckedChangeListener { buttonView, isChecked ->
                     if (buttonView.isPressed && isChecked) {
                         selectedName = getItem(holder.layoutPosition)?.name
-                        updateItems(0, itemCount - 1, true)
+                        updateItems(0, itemCount - 1, bundleOf("upSelect" to null))
                     }
                 }
                 swtEnabled.setOnCheckedChangeListener { buttonView, isChecked ->
                     if (buttonView.isPressed) {
                         getItem(holder.layoutPosition)?.let {
                             it.enable = isChecked
-                            launch(IO) {
-                                appDb.txtTocRuleDao.update(it)
-                            }
+                            viewModel.update(it)
                         }
                     }
                 }
@@ -245,8 +293,12 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
                 }
                 ivDelete.setOnClickListener {
                     getItem(holder.layoutPosition)?.let { item ->
-                        launch(IO) {
-                            appDb.txtTocRuleDao.delete(item)
+                        alert(R.string.draw) {
+                            setMessage(getString(R.string.sure_del) + "\n" + item.name)
+                            noButton()
+                            yesButton {
+                                viewModel.del(item)
+                            }
                         }
                     }
                 }
@@ -267,9 +319,7 @@ class TxtTocRuleDialog() : BaseDialogFragment(R.layout.dialog_toc_regex),
                 for ((index, item) in getItems().withIndex()) {
                     item.serialNumber = index + 1
                 }
-                launch(IO) {
-                    appDb.txtTocRuleDao.update(*getItems().toTypedArray())
-                }
+                viewModel.update(*getItems().toTypedArray())
             }
             isMoved = false
         }
